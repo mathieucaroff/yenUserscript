@@ -5,18 +5,21 @@
 // @namespace    http://tampermonkey.net/
 // @version      2025-08-27
 // @description  Convert Yen values to Euro
-// @author       You
+// @author       Mathieu CAROFF
 // @match        *://*/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=agoda.com
 // @grant        none
 // ==/UserScript==
 
-var yenToEuroConversionRate = 0.0058;
-
 (function () {
   "use strict";
 
+  const defaultYenToEuroConversionRate = 0.00577;
+  var yenToEuroConversionRate = 0;
+
   function findAndConvert() {
+    if (!yenToEuroConversionRate) return;
+
     visitAllTextNodes(document.body, (textNode) => {
       if ((textNode.nodeValue ?? "").includes("¥")) {
         if (textNode.parentElement?.tagName === "SCRIPT") return;
@@ -160,6 +163,28 @@ var yenToEuroConversionRate = 0.0058;
     node.parentElement?.setAttribute("data-yen-to-euro-converted", "true");
     return false;
   }
+
+  async function fetchConversionRate() {
+    try {
+      var yenUserscript = JSON.parse(
+        localStorage.getItem("yenUserscript") || "{}"
+      );
+      var today = new Date().toISOString().split("T")[0];
+      if (!yenUserscript.rate || yenUserscript.day !== today) {
+        var r = await fetch("https://open.exchangerate-api.com/v6/latest/JPY");
+        var data = await r.json();
+        yenUserscript.rate = data.rates.EUR;
+        yenUserscript.day = today;
+        localStorage.setItem("yenUserscript", JSON.stringify(yenUserscript));
+      }
+      yenToEuroConversionRate = yenUserscript.rate;
+    } catch (error) {
+      console.log(error);
+      yenToEuroConversionRate = defaultYenToEuroConversionRate;
+    }
+  }
+
+  fetchConversionRate().then(findAndConvert);
 
   document.documentElement.addEventListener("click", findAndConvert, true);
 
