@@ -18,63 +18,48 @@ var yenToEuroConversionRate = 0.0058;
 
   function findAndConvert() {
     visitAllTextNodes(document.body, (textNode) => {
-      var success = false;
       if ((textNode.nodeValue ?? "").includes("¥")) {
         if (textNode.parentElement?.tagName === "SCRIPT") return;
-        console.log(
-          "Found text node:",
-          textNode.nodeValue,
-          textNode.parentElement
-        );
         if (markNode(textNode)) return;
-        walkSidewayAndUpUntil("right", textNode, (nodeList) => {
-          var text = nodeList.map((node) => node.textContent).join("");
-          var textMatch = text.match(/¥[\s\u202F\u00A0]*[^\s\u202F\u00A0]/);
-          var yenMatch = text.match(/¥[\s\u202F\u00A0]*([\d\s,]+(\.\d+)?)/);
-          if (yenMatch) {
-            var yenValue = Number(yenMatch[1].replace(/[\s,]/g, ""));
-            var euroValue = yenValue * yenToEuroConversionRate;
-            var euroString = euroValue.toLocaleString("de-DE", {
-              style: "currency",
-              currency: "EUR",
-              maximumFractionDigits: 2,
-            });
-            textNode.nodeValue = `(${euroString}) ${textNode.nodeValue}`;
-            success = true;
-          }
-          if (success) {
-            console.log("SUCCESS:", textNode.nodeValue);
-          } else if (textMatch) {
-            console.log("STOP (textMatch):", text);
-          }
-          return {
-            keepGoing: !textMatch && !yenMatch,
-          };
-        });
-        if (success) return;
-        walkSidewayAndUpUntil("left", textNode, (nodeList) => {
-          var text = nodeList.map((node) => node.textContent).join("");
-          var textMatch = text.match(/[^\s\u202F\u00A0][\s\u202F\u00A0]*¥/);
-          var yenMatch = text.match(/([\d\s,]+(\.\d+)?)[\s\u202F\u00A0]*¥/);
-          if (yenMatch) {
-            var yenValue = Number(yenMatch[1].replace(/[\s,]/g, ""));
-            var euroValue = yenValue * yenToEuroConversionRate;
-            var euroString = euroValue.toLocaleString("de-DE", {
-              style: "currency",
-              currency: "EUR",
-              maximumFractionDigits: 2,
-            });
-            textNode.nodeValue = `${textNode.nodeValue} (${euroString})`;
-            success = true;
-          }
-          if (success) {
-            console.log("SUCCESS:", textNode.nodeValue);
-          } else if (textMatch) {
-            console.log("STOP (textMatch):", text);
-          }
-          return {
-            keepGoing: !textMatch && !yenMatch,
-          };
+        walkSidewayAndUpUntil(textNode, {
+          right: (nodeList) => {
+            var text = nodeList.map((node) => node.textContent).join("");
+            var textMatch = text.match(/¥[\s\u202F\u00A0]*[^\s\u202F\u00A0]/);
+            var yenMatch = text.match(/¥[\s\u202F\u00A0]*(\d[\d\s,]*(\.\d+)?)/);
+            if (yenMatch) {
+              var yenValue = Number(yenMatch[1].replace(/[\s,]/g, ""));
+              var euroValue = yenValue * yenToEuroConversionRate;
+              var euroString = euroValue.toLocaleString("de-DE", {
+                style: "currency",
+                currency: "EUR",
+                maximumFractionDigits: 2,
+              });
+              textNode.nodeValue = `(${euroString}) ${textNode.nodeValue}`;
+            }
+            return {
+              found: !!yenMatch,
+              keepGoing: !textMatch && !yenMatch,
+            };
+          },
+          left: (nodeList) => {
+            var text = nodeList.map((node) => node.textContent).join("");
+            var textMatch = text.match(/[^\s\u202F\u00A0][\s\u202F\u00A0]*¥/);
+            var yenMatch = text.match(/(\d[\d\s,]*(\.\d+)?)[\s\u202F\u00A0]*¥/);
+            if (yenMatch) {
+              var yenValue = Number(yenMatch[1].replace(/[\s,]/g, ""));
+              var euroValue = yenValue * yenToEuroConversionRate;
+              var euroString = euroValue.toLocaleString("de-DE", {
+                style: "currency",
+                currency: "EUR",
+                maximumFractionDigits: 2,
+              });
+              textNode.nodeValue = `${textNode.nodeValue} (${euroString})`;
+            }
+            return {
+              found: !!yenMatch,
+              keepGoing: !textMatch && !yenMatch,
+            };
+          },
         });
       }
     });
@@ -99,31 +84,66 @@ var yenToEuroConversionRate = 0.0058;
   }
 
   /**
-   * @param {'left' | 'right'} direction
    * @param {Node} startNode
-   * @param {(nodeList: Node[]) => { keepGoing: boolean }} callback
+   * @param {{
+   *   left: (nodeList: Node[]) => { found: boolean, keepGoing: boolean },
+   *   right: (nodeList: Node[]) => { found: boolean, keepGoing: boolean }
+   * }} callbackObject
    */
-  function walkSidewayAndUpUntil(direction, startNode, callback) {
-    var nodeList = [startNode];
+  function walkSidewayAndUpUntil(startNode, callbackObject) {
+    var leftKeepGoing = true;
+    var rightKeepGoing = true;
+    var leftWait = false;
+    var rightWait = false;
+    var leftNodeList = [startNode];
+    var rightNodeList = [startNode];
 
-    var k = 0;
-    while (callback(nodeList).keepGoing && ++k < 1000) {
-      let node = direction === "left" ? nodeList[0] : nodeList.slice(-1)[0];
-      let sibling =
-        direction === "left" ? node.previousSibling : node.nextSibling;
-      if (sibling) {
-        if (direction === "left") {
-          nodeList.unshift(sibling);
+    var centralNode = startNode;
+
+    for (var k = 0; (leftKeepGoing || rightKeepGoing) && k < 1000; k++) {
+      // left
+      if (leftKeepGoing && !leftWait) {
+        var leftNode = leftNodeList[0];
+        if (leftNode.previousSibling) {
+          leftNodeList.unshift(leftNode.previousSibling);
+          let { found, keepGoing } = callbackObject.left(leftNodeList);
+          if (found) {
+            break;
+          }
+          if (!keepGoing) {
+            leftKeepGoing = false;
+          }
         } else {
-          nodeList.push(sibling);
+          leftWait = true;
         }
-      } else {
-        if (node.parentNode) {
-          nodeList = [node.parentNode];
+      }
+      // right
+      if (rightKeepGoing && !rightWait) {
+        var rightNode = rightNodeList[rightNodeList.length - 1];
+        if (rightNode.nextSibling) {
+          rightNodeList.push(rightNode.nextSibling);
+          let { found, keepGoing } = callbackObject.right(rightNodeList);
+          if (found) {
+            break;
+          }
+          if (!keepGoing) {
+            rightKeepGoing = false;
+          }
         } else {
-          console.log(
-            "STOP: walkSidewayAndUpUntil: Reached the top of the DOM tree"
-          );
+          rightWait = true;
+        }
+      }
+      // go up if both side are waiting for it
+      if (leftWait && rightWait) {
+        // go up
+        if (centralNode.parentElement) {
+          centralNode = centralNode.parentElement;
+          leftWait = false;
+          rightWait = false;
+          leftNodeList = [centralNode];
+          rightNodeList = [centralNode];
+        } else {
+          console.log("STOP (can't go up because no parentElement)");
           break;
         }
       }
@@ -141,19 +161,11 @@ var yenToEuroConversionRate = 0.0058;
     return false;
   }
 
-  // new MutationObserver(() => {
-  //   findAndConvert();
-  // }).observe(document.documentElement, {
-  //   childList: true,
-  //   attributes: true,
-  //   subtree: true,
-  // });
+  document.documentElement.addEventListener("click", findAndConvert, true);
 
-  document.documentElement.addEventListener(
-    "click",
-    () => {
-      findAndConvert();
-    },
-    true
-  );
+  new MutationObserver(findAndConvert).observe(document.documentElement, {
+    childList: true,
+    attributes: true,
+    subtree: true,
+  });
 })();
