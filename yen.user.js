@@ -21,16 +21,20 @@
     if (!yenToEuroConversionRate) return;
 
     visitAllTextNodes(document.body, (textNode) => {
-      if ((textNode.nodeValue ?? "").includes("¥")) {
+      if ((textNode.nodeValue ?? "").match(/¥|\bYEN\b|\bJPY\b/i)) {
         if (textNode.parentElement?.tagName === "SCRIPT") return;
         if (markNode(textNode)) return;
         walkSidewayAndUpUntil(textNode, {
           right: (nodeList) => {
             var text = nodeList.map((node) => node.textContent).join("");
-            var textMatch = text.match(/¥[\s\u202F\u00A0]*[^\s\u202F\u00A0]/);
-            var yenMatch = text.match(/¥[\s\u202F\u00A0]*(\d[\d\s,]*(\.\d+)?)/);
+            var textMatch = text.match(
+              /(¥|\bYEN|\bJPY)[\s\u202F\u00A0]*[^\s\u202F\u00A0]/i
+            );
+            var yenMatch = text.match(
+              /(¥|\bYEN|\bJPY)[\s\u202F\u00A0]*(\d[\d\s,]*(\.\d+)?)/i
+            );
             if (yenMatch) {
-              var yenValue = Number(yenMatch[1].replace(/[\s,]/g, ""));
+              var yenValue = Number(yenMatch[2].replace(/[\s,]/g, ""));
               var euroValue = yenValue * yenToEuroConversionRate;
               var euroString = euroValue.toLocaleString("de-DE", {
                 style: "currency",
@@ -46,8 +50,12 @@
           },
           left: (nodeList) => {
             var text = nodeList.map((node) => node.textContent).join("");
-            var textMatch = text.match(/[^\s\u202F\u00A0][\s\u202F\u00A0]*¥/);
-            var yenMatch = text.match(/(\d[\d\s,]*(\.\d+)?)[\s\u202F\u00A0]*¥/);
+            var textMatch = text.match(
+              /[^\s\u202F\u00A0][\s\u202F\u00A0]*(¥|YEN\b|JPY\b)/i
+            );
+            var yenMatch = text.match(
+              /(\d[\d\s,]*(\.\d+)?)[\s\u202F\u00A0]*(¥|YEN\b|JPY\b)/i
+            );
             if (yenMatch) {
               var yenValue = Number(yenMatch[1].replace(/[\s,]/g, ""));
               var euroValue = yenValue * yenToEuroConversionRate;
